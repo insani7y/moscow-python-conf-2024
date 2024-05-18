@@ -47,9 +47,6 @@ Contents:
   - [e2e](#e2e)
 - [Badges](#badges)
 - [FAQ](#faq)
-- [Pipelines versioning (for contributors)](#pipelines-versioning-for-contributors)
-  - [Versioning of stage jobs templates](#versioning-of-stage-jobs-templates)
-  - [Versioning of presets for pipelines](#versioning-of-presets-for-pipelines)
 
 ## Requirements
 
