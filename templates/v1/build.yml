@@ -1,0 +1,91 @@
+include: _base/base.yml
+
+.build-base:
+  # Base build job. Includes only general variables for all build jobs and job meta info.
+  stage: build
+  extends: .default-job
+  variables:
+    DOCKEFILE_DESTINATION: Dockerfile
+  rules:
+    - !reference [.default-rules, dev-rule]
+
+.kaniko-build:
+  # Kaniko build job, you can inherit from.
+  # Requires a dockerfile destination i.e. /my/path/to/dockerfile/Dockerfile.
+  # Builds an image according to DOCKEFILE_DESTINATION Dockerfile and puts it into artifactory under given creds.
+  image: $KANIKO_IMAGE_FOR_CI
+  extends: .build-base
+  script:
+    - !reference [.login-methods, kaniko-login]
+    - >
+      COMMAND="/kaniko/executor
+      --context $CI_PROJECT_DIR
+      --dockerfile $CI_PROJECT_DIR/$DOCKEFILE_DESTINATION
+      --destination $DOCKER_TAG_FOR_CI_AMD
+      --build-arg ARTIFACTORY_USER=$ARTIFACTORY_USER
+      --build-arg ARTIFACTORY_PASSWORD=$ARTIFACTORY_PASSWORD"
+    - eval $COMMAND
+
+.kaniko-build-arm:
+  # Kaniko arm build job, you can inherit from.
+  # Requires a dockerfile destination i.e. /my/path/to/dockerfile/Dockerfile.
+  # Builds an image according to DOCKEFILE_DESTINATION Dockerfile and puts it into artifactory under given creds.
+  extends: .build-base
+  image: $KANIKO_IMAGE_FOR_CI
+  rules:
+    - if: $SKIP_BUILD_ARM
+      when: never
+    - !reference [.build-base, rules]
+  script:
+    - !reference [.login-methods, kaniko-login]
+    - >
+      ARM_COMMAND="/kaniko/executor
+      --customPlatform linux/arm64
+      --context $CI_PROJECT_DIR
+      --dockerfile $CI_PROJECT_DIR/$DOCKEFILE_DESTINATION
+      --destination $DOCKER_TAG_FOR_CI_ARM
+      --build-arg ARTIFACTORY_USER=$ARTIFACTORY_USER
+      --build-arg ARTIFACTORY_PASSWORD=$ARTIFACTORY_PASSWORD"
+    - eval $ARM_COMMAND
+
+.publish-multiarch-manifest:
+  # Job that publishes multiarch manifest
+  extends:
+    - .build-base
+    - .default-docker-cli-job
+  image: $DOCKER_CLI_FOR_CI
+  script:
+    - if [ "$SKIP_BUILD_ARM" == "true" ]; then EXTRA_ARGS=""; else EXTRA_ARGS="$DOCKER_TAG_FOR_CI_ARM"; fi
+    - docker manifest create --insecure $DOCKER_TAG_FOR_CI $DOCKER_TAG_FOR_CI_AMD $EXTRA_ARGS
+    - docker manifest push --insecure $DOCKER_TAG_FOR_CI
+
+.build-frontend-project:
+  cache:
+    - !reference [.base-frontend-cache, cache]
+  artifacts:
+    paths:
+      - $BUILD_DIR
+    expire_in: 30 mins
+  extends:
+    - .install-frontend
+    - .build-base
+  before_script:
+    - !reference [.install-frontend, before_script]
+  script:
+    - $PACKAGE_MANAGER run build
+
+.build-frontend:
+  # Build frontend image.
+  # Requires BUILD_DIR to be defined.
+  extends: .kaniko-build
+  artifacts:
+    paths:
+      - $BUILD_DIR
+
+.build-frontend-arm:
+  # Build frontend arm image.
+  # Requires BUILD_DIR to be defined.
+  extends: .kaniko-build-arm
+  artifacts:
+    paths:
+      - $BUILD_DIR

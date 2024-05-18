@@ -1,0 +1,139 @@
+include:
+  - "/templates/v1/static-analyze.yml"
+  - "/templates/v1/build.yml"
+  - "/templates/v1/test.yml"
+  - "/templates/v1/appsec.yml"
+  - "/templates/v1/scan.yml"
+  - "/templates/v1/image-release.yml"
+  - "/templates/v1/deploy.yml"
+  - "/templates/v1/gitlab-release.yml"
+  - "/templates/v1/e2e.yml"
+
+lines-of-code-badge:
+  extends: .lines-of-code-badge
+
+ruff-check-static-analyze:
+  extends: .ruff-check-static-analyze
+
+ruff-format-static-analyze:
+  extends: .ruff-format-static-analyze
+
+trivy-static-analyze:
+  extends: .trivy-static-analyze
+
+mypy-static-analyze:
+  extends: .mypy-static-analyze
+
+hadolint-static-analyze:
+  extends: .hadolint-static-analyze
+  allow_failure: true
+
+kube-score-static-analyze:
+  extends: .kube-score-static-analyze
+
+kaniko-build:
+  extends: .kaniko-build
+
+kaniko-build-arm:
+  extends: .kaniko-build-arm
+
+publish-multiarch-manifest:
+  needs:
+    - job: kaniko-build-arm
+      optional: true
+    - kaniko-build
+  extends: .publish-multiarch-manifest
+
+test-compose:
+  extends: .test-compose-ci
+
+tag-tested-image:
+  needs:
+    - job: publish-multiarch-manifest
+      optional: true
+    - job: test-compose
+      optional: true
+  extends: .tag-tested-image
+
+sonar-scan-python:
+  extends: .sonar-scan-python
+  allow_failure: true
+
+tag-scanned-image:
+  needs:
+    - tag-tested-image
+    - job: sonar-scan-python
+      optional: true
+    - job: appsec
+      optional: true
+    - job: appsec-stages
+      optional: true
+  extends: .tag-scanned-image
+
+appscreener-get-project:
+  extends: .appscreener-get-project
+  rules:
+    - !reference [.appscreener-get-project, rules]
+
+appscreener-scan:
+  needs:
+    - appscreener-get-project
+  extends: .appscreener-scan
+
+verify-artifactory-properties:
+  needs:
+    - job: tag-scanned-image
+      optional: true
+    - job: appsec
+      optional: true
+    - job: appsec-stages
+      optional: true
+  extends: .verify-artifactory-properties
+
+image-release:
+  needs:
+    - job: verify-artifactory-properties
+      optional: true
+    - job: appsec
+      optional: true
+    - job: appsec-stages
+      optional: true
+  extends: .image-release
+
+deploy-dev:
+  needs:
+    - image-release
+  extends: .deploy-dev
+  allow_failure: true
+
+deploy-prev:
+  needs:
+    - image-release
+  extends: .deploy-prev
+
+deploy-prod:
+  needs:
+    - image-release
+  extends: .deploy-prod
+
+gitlab-release:
+  needs:
+    - job: deploy-prev
+      optional: true
+  extends: .gitlab-release
+
+gitlab-release-update-prod:
+  needs:
+    - deploy-prod
+  extends: .gitlab-release-update-prod
+
+run-e2e-tests:
+  stage: e2e
+  needs:
+    - deploy-dev
+  extends: .run-e2e-tests
+
+auto-semver:
+  needs:
+    - image-release
+  extends: .auto-semver

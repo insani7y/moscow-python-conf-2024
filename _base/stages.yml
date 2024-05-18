@@ -1,0 +1,11 @@
+stages:
+  - static-analyze
+  - build
+  - test
+  - appsec
+  - scan
+  - publish
+  - image-release
+  - deploy
+  - gitlab-release
+  - e2e

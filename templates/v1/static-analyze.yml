@@ -1,0 +1,160 @@
+include: _base/base.yml
+
+.static-analyze-base:
+  # Base static-analyze job. Includes only general variables for all static-analyze jobs and job meta info.
+  extends: .default-job
+  stage: static-analyze
+  variables:
+    VERSION: ""
+    ARGS: ""
+    ARGS_EXTRA: ""
+  rules:
+    - !reference [.default-rules, merge-request-rule]
+
+.ruff-check-static-analyze:
+  # Ruff linter static-analyze job, you can inherit from.
+  extends: .static-analyze-base
+  image: $PYTHON_IMAGE_FOR_CI
+  script:
+    - pip install ruff$([[ "$RUFF_VERSION" != "" ]] && echo "=="$RUFF_VERSION)
+    - ruff check . $ARGS $ARGS_EXTRA --output-format gitlab --output-file $CODEQUALITY_REPORT
+  artifacts:
+    reports:
+      codequality: $CODEQUALITY_REPORT
+
+.ruff-format-static-analyze:
+  # Ruff formatter static-analyze job, you can inherit from.
+  extends: .static-analyze-base
+  image: $PYTHON_IMAGE_FOR_CI
+  script:
+    - pip install ruff$([[ "$RUFF_VERSION" != "" ]] && echo "=="$RUFF_VERSION)
+    - ruff format . $ARGS $ARGS_EXTRA --check
+
+.mypy-static-analyze:
+  # Mypy static-analyze job, you can inherit from.
+  extends: .static-analyze-base
+  image: $PYTHON_IMAGE_FOR_CI
+  variables:
+    POETRY_CACHE_DIR: "$CI_PROJECT_DIR/.cache/poetry"
+    MYPY_TEXT_REPORT: "mypy.txt"
+    ARGS: >-
+      --show-error-context
+      --pretty
+  cache:
+    paths:
+      - .cache/poetry
+  script:
+    - poetry config virtualenvs.create false
+    - poetry install --all-extras
+    - pip install mypy-gitlab-code-quality mypy$([[ "$MYPY_VERSION" != "" ]] && echo "=="$MYPY_VERSION)
+    - poetry run mypy . --install-types --non-interactive || true
+    - poetry run mypy . $ARGS $ARGS_EXTRA > $MYPY_TEXT_REPORT && exit_code=0 || exit_code=$?
+    - mypy-gitlab-code-quality < $MYPY_TEXT_REPORT > $CODEQUALITY_REPORT
+    - test $exit_code -eq 0
+  artifacts:
+    reports:
+      codequality: $CODEQUALITY_REPORT
+
+.trivy-static-analyze:
+  # Trivy static-analyze job, you can inherit from.
+  # You can define severity of vulnerabilities to be detected.
+  extends:
+    - .static-analyze-base
+    - .default-docker-cli-job
+  variables:
+    SEVERITY_COMMAND: "HIGH,CRITICAL"
+  rules:
+    - if: $SKIP_TRIVY
+      when: never
+    - !reference [.static-analyze-base, rules]
+  script: >
+    docker run -v $(pwd)/reports:/reports $TRIVY_IMAGE_FOR_CI repo $CI_REPOSITORY_URL
+    --commit $CI_COMMIT_SHA
+    --insecure
+    --skip-db-update
+    $([[ "$SEVERITY_COMMAND" != "" ]] && echo "--severity" $SEVERITY_COMMAND)
+    --format template
+    --template "@contrib/gitlab.tpl"
+    -o /reports/$CONTAINER_SCANNING_REPORT
+  artifacts:
+    reports:
+      container_scanning: reports/$CONTAINER_SCANNING_REPORT
+
+.hadolint-static-analyze:
+  # Hadolint static-analyze job, you can inherit from.
+  # Lints Dockerfiles, you can redefine a /path/to/your/Dockerfile
+  extends:
+    - .static-analyze-base
+    - .default-docker-cli-job
+  variables:
+    DOCKEFILE_DESTINATION: Dockerfile
+    ARGS: "hadolint -f gitlab_codeclimate -t warning --ignore DL3045"
+    # DL3045 ignored to allow COPY to relative path without WORKDIR set because of multistage
+  rules:
+    - if: $SKIP_HADOLINT
+      when: never
+    - !reference [.static-analyze-base, rules]
+  script: >
+    docker run --rm -i $HADOLINT_IMAGE_FOR_CI $ARGS $ARGS_EXTRA - < $DOCKEFILE_DESTINATION
+    | tee $CODEQUALITY_REPORT
+  artifacts:
+    reports:
+      codequality: $CODEQUALITY_REPORT
+
+.kube-score-static-analyze:
+  # Kube score static-analyze job, you can inherit from.
+  # Lints k8s manifests you can redefine a /path/to/your/k8s/directory
+  extends:
+    - .static-analyze-base
+    - .default-docker-cli-job
+  variables:
+    K8S_MANIFESTS_DIR: $DEPLOY_HELM_CHART
+    FORMAT: "yaml"
+  rules:
+    - if: $SKIP_KUBESCORE
+      when: never
+    - !reference [.static-analyze-base, rules]
+  script:
+    - docker run -v $(pwd):/project $KUBE_SCORE_IMAGE_FOR_CI score $K8S_MANIFESTS_DIR/*.$FORMAT
+
+.lint-frontend:
+  # Lint frontend job.
+  cache:
+    - !reference [.base-frontend-cache, cache]
+  extends:
+    - .install-frontend
+    - .static-analyze-base
+  variables:
+    COMMAND: ""
+    TYPE_COVERAGE_BADGE: "type-coverage-badge.svg"
+  script:
+    - if [[ ! $COMMAND ]]; then export COMMAND="$PACKAGE_MANAGER run lint"; fi
+    - $COMMAND
+  before_script:
+    - !reference [.install-frontend, before_script]
+  artifacts:
+    paths:
+      - $TYPE_COVERAGE_BADGE
+    when: always
+    expire_in: 4 weeks
+  rules:
+    - !reference [.default-rules, merge-request-rule]
+
+.lines-of-code-badge:
+  # Adds a line of code badge. By default checks only .py files.
+  # You can override this behavior by settings FILE_SUFFIX variable.
+  image: $PYTHON_IMAGE_FOR_CI
+  extends: .static-analyze-base
+  variables:
+    FILE_SUFFIX: "py"
+  rules:
+    - !reference [.default-rules, dev-rule]
+  script:
+    - pip install pygount==1.5.1 anybadge
+    - lines_of_code=$(pygount --format=summary --suffix py| tail -n 2 | head -n 1 | awk '{print $8}')
+    - anybadge -l "lines of code" -v $lines_of_code -f lines-of-code.svg -c green
+  artifacts:
+    paths:
+      - lines-of-code.svg
+    when: always
+    expire_in: 4 weeks

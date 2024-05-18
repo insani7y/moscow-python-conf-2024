@@ -1,0 +1,30 @@
+include: _base/base.yml
+
+.gitlab-release:
+  image: $PYTHON_IMAGE_FOR_CI
+  stage: gitlab-release
+  variables:
+    RELEASE_SERVER: preview
+  script:
+    - if [[ ! $ASSET_URL ]]; then export ASSET_URL=https://$ARTIFACTORY_HOST/artifactory/$DOCKER_TEAM_REGISTRY_PREFIX$PROJECT_SLUG/$CI_PROJECT_NAME/release/$CI_COMMIT_TAG; fi
+    - pip install raif-tiny-releaser --extra-index-url https://$ARTIFACTORY_USER:$ARTIFACTORY_PASSWORD@$ARTIFACTORY_HOST/artifactory/api/pypi/python-community-pypi/simple
+    - python -m tiny_releaser create-release $CI_PROJECT_ID $GENERIC_GITLAB_TOKEN $CI_COMMIT_TAG --asset-url=$ASSET_URL
+    - if [[ $SKIP_RELEASE_PAGE_UPDATE != true ]]; then python -m tiny_releaser update-release-info $CI_PROJECT_ID $GENERIC_GITLAB_TOKEN $CI_COMMIT_TAG $RELEASE_SERVER; fi
+  rules:
+    - !reference [.default-rules, gitlab-release-rule]
+    - if: $SKIP_GITLAB_RELEASE
+      when: never
+
+.gitlab-release-update-prod:
+  image: $PYTHON_IMAGE_FOR_CI
+  stage: gitlab-release
+  variables:
+    RELEASE_SERVER: production
+  allow_failure: true
+  script:
+    - pip install raif-tiny-releaser --extra-index-url https://$ARTIFACTORY_USER:$ARTIFACTORY_PASSWORD@$ARTIFACTORY_HOST/artifactory/api/pypi/python-community-pypi/simple
+    - python -m tiny_releaser update-release-info $CI_PROJECT_ID $GENERIC_GITLAB_TOKEN $CI_COMMIT_TAG $RELEASE_SERVER
+  rules:
+    - !reference [.default-rules, gitlab-release-rule]
+    - if: $SKIP_GITLAB_RELEASE || $SKIP_RELEASE_PAGE_UPDATE
+      when: never

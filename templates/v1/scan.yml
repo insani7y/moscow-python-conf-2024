@@ -1,0 +1,72 @@
+include:
+  - project: "some-secret-includes"
+    file: "/some-secret.yaml"
+  - "_base/base.yml"
+
+.scan-base:
+  # Base scan job. Includes only general variables for all scan jobs and job meta info.
+  extends: .default-job
+  stage: scan
+  rules:
+    - !reference [.default-rules, dev-rule]
+
+.after-scan-base:
+  # Base after scan job. Includes only general variables for all scan jobs and job meta info.
+  stage: scan
+  extends: .default-job
+  rules:
+    - !reference [.default-rules, dev-rule]
+
+._sonar-scan-abstract:
+  # Abstract sonar scan job, you should inherit from. Do not redefine this job.
+  variables:
+    SONAR_HOST_URL: "https://some.sonar.ru/"
+    SONAR_CRITICAL_COUNT: "15"
+    EXTRA_ARGS: ""
+  extends: .scan-base
+  image: $SONAR_IMAGE_FOR_CI
+  rules:
+    - if: $SONAR_TEAM == null
+      when: never
+    - !reference [.scan-base, rules]
+  script:
+    - set -x
+    - sonar-scanner -X
+      -Dsonar.host.url=$SONAR_HOST_URL
+      -Dsonar.login=$SONAR_TOKEN
+      -Dsonar.sources=.
+      -Dsonar.projectKey="$SONAR_TEAM".$CI_PROJECT_PATH_SLUG
+      -Dsonar.projectName=$(python -c "print('$CI_PROJECT_PATH_SLUG'.title())")
+      -Dsonar.gitlab.commit_sha=$CI_COMMIT_SHA
+      -Dsonar.gitlab.ref_name=$CI_COMMIT_REF_NAME
+      -Dsonar.gitlab.project_id=$CI_PROJECT_PATH
+      -Dsonar.gitlab.max_critical_issues_gate=$SONAR_CRITICAL_COUNT
+      -Dsonar.branch.name=$CI_COMMIT_REF_NAME
+      $EXTRA_ARGS
+
+.sonar-scan-python:
+  # Sonar scan predefined python job, you can inherit from.
+  variables:
+    EXTRA_ARGS: -Dsonar.python.xunit.reportPath=$JUNIT_FILE_NAME
+      -Dsonar.python.coverage.reportPaths=$COVERAGE_FILE_NAME
+      -Dsonar.inclusions=**/*.py
+      -Dsonar.exclusions=**/migrations/*.py,bin/**,doc/**
+  extends: ._sonar-scan-abstract
+
+.sonar-scan-js:
+  # Sonar scan predefined js job, you can inherit from.
+  variables:
+    EXTRA_ARGS: -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+      -Dsonar.typescript.tsconfigPath=./tsconfig.json
+      -Dsonar.inclusions=**/*.ts,**/*.tsx
+      -Dsonar.exclusions=bin/**,doc/**,**/*.spec.ts,**/*.spec.tsx,cookiecutter/**
+  extends: ._sonar-scan-abstract
+
+.tag-scanned-image:
+  # Adds 'scanned' property to the image. This means, that image has been tested.
+  extends:
+    - .after-scan-base
+    - .jfrog-set-property-job
+  variables:
+    ARTIFACT_PATH: $DOCKER_IMAGE_PATH
+    ARTIFACT_PROPERTIES: "$ARTIFACTORY_SCANNED_PROPERTY=true"

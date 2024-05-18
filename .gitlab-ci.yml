@@ -1,0 +1,21 @@
+include:
+  - _base/vars.yml
+
+stages:
+  - validate
+
+.default-rules:
+  main-rule:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: always
+    - when: never
+
+validate-presets:
+  stage: validate
+  image: $PYTHON_IMAGE_FOR_CI
+  rules:
+    - !reference [.default-rules, main-rule]
+  script:
+    - poetry config virtualenvs.create false
+    - poetry install
+    - python scripts/pypeline_validation.py

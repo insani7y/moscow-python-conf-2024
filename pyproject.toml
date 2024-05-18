@@ -1,0 +1,16 @@
+[tool.poetry]
+name = "pypelines"
+version = "1.0.0"
+description = ""
+authors = ["Python Community <python-community@raiffeisen.ru>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+python-gitlab = "*"
+ruamel-yaml = "*"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

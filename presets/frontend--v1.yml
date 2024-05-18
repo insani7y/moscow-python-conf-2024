@@ -1,0 +1,126 @@
+include:
+  - "/templates/v1/static-analyze.yml"
+  - "/templates/v1/build.yml"
+  - "/templates/v1/test.yml"
+  - "/templates/v1/appsec.yml"
+  - "/templates/v1/scan.yml"
+  - "/templates/v1/image-release.yml"
+  - "/templates/v1/deploy.yml"
+  - "/templates/v1/gitlab-release.yml"
+
+lines-of-code-badge:
+  extends: .lines-of-code-badge
+  variables:
+    FILE_SUFFIX: "ts"
+
+lint-frontend:
+  extends: .lint-frontend
+
+build-frontend-project:
+  extends: .build-frontend-project
+
+build-frontend:
+  needs:
+    - build-frontend-project
+  extends: .build-frontend
+
+build-frontend-arm:
+  needs:
+    - build-frontend-project
+  extends: .build-frontend-arm
+
+publish-multiarch-manifest:
+  needs:
+    - build-frontend
+    - build-frontend-arm
+  extends: .publish-multiarch-manifest
+
+test-frontend:
+  needs:
+    - publish-multiarch-manifest
+  extends: .test-js-ci
+
+tag-tested-image:
+  needs:
+    - job: publish-multiarch-manifest
+      optional: true
+    - job: test-frontend
+      optional: true
+  extends: .tag-tested-image
+
+sonar-scan-js:
+  extends: .sonar-scan-js
+  allow_failure: true
+
+appscreener-get-project:
+  extends: .appscreener-get-project
+  rules:
+    - !reference [.appscreener-get-project, rules]
+
+appscreener-scan:
+  needs:
+    - appscreener-get-project
+  extends: .appscreener-scan
+
+tag-scanned-image:
+  needs:
+    - tag-tested-image
+    - job: sonar-scan-js
+      optional: true
+    - job: appsec
+      optional: true
+    - job: appsec-stages
+      optional: true
+  extends: .tag-scanned-image
+
+verify-artifactory-properties:
+  needs:
+    - job: tag-scanned-image
+      optional: true
+    - job: appsec
+      optional: true
+    - job: appsec-stages
+      optional: true
+  extends: .verify-artifactory-properties
+
+image-release:
+  needs:
+    - job: verify-artifactory-properties
+      optional: true
+    - job: appsec
+      optional: true
+    - job: appsec-stages
+      optional: true
+  extends: .image-release
+
+deploy-dev:
+  needs:
+    - image-release
+  extends: .deploy-dev
+  allow_failure: true
+
+deploy-prev:
+  needs:
+    - image-release
+  extends: .deploy-prev
+
+deploy-prod:
+  needs:
+    - image-release
+  extends: .deploy-prod
+
+gitlab-release:
+  needs:
+    - job: deploy-prev
+      optional: true
+  extends: .gitlab-release
+
+gitlab-release-update-prod:
+  needs:
+    - deploy-prod
+  extends: .gitlab-release-update-prod
+
+auto-semver:
+  needs:
+    - image-release
+  extends: .auto-semver

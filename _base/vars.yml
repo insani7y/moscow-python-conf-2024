@@ -1,0 +1,63 @@
+variables:
+  # Main pipe settings
+  ARTIFACTORY_HOST: ...
+  ENABLE_ISOLATION: "false"
+
+  # Container management and creation
+  DOCKER_IMAGE_FOR_CI: $ARTIFACTORY_HOST/ext-devops-community-docker/cli-tools:1.2.3
+  PYTHON_IMAGE_FOR_CI: $ARTIFACTORY_HOST/python-community-docker/python:3.12.2-slim-rbru
+  KANIKO_IMAGE_FOR_CI: $ARTIFACTORY_HOST/ext-devops-community-docker/kaniko:1.9.1
+  DOCKER_CLI_FOR_CI: $ARTIFACTORY_HOST/python-community-docker/techimage/docker:26.0.0-cli
+  YQ_IMAGE_FOR_CI: $ARTIFACTORY_HOST/python-community-docker/techimage/mikefarah/yq:4.31.2
+  SONAR_IMAGE_FOR_CI: $ARTIFACTORY_HOST/ext-devops-community-docker/sonar-scanner:4.6.2
+  HADOLINT_IMAGE_FOR_CI: $ARTIFACTORY_HOST/python-community-docker/techimage/hadolint/hadolint:2.11.0
+  KUBE_SCORE_IMAGE_FOR_CI: $ARTIFACTORY_HOST/python-community-docker/techimage/zegl/kube-score:v1.16.1
+  SKOPEO_IMAGE_FOR_CI: $ARTIFACTORY_HOST/python-community-docker/techimage/quay.io/containers/skopeo:v1.11
+  JFROG_CLI_IMAGE_FOR_CI: $ARTIFACTORY_HOST/python-community-docker/techimage/jfrog/jfrog-cli-v2-jf:2.35.0
+  NODE_IMAGE_FOR_CI: $ARTIFACTORY_HOST/nodejs-community-docker/node:21.6.2-slim
+
+  # Gitlab integration
+  CODEQUALITY_REPORT: "codequality.json"
+  CONTAINER_SCANNING_REPORT: "container_scanning.json"
+
+  # Static analyze images
+  # always fresh trivy by default
+  TRIVY_IMAGE_FOR_CI: $ARTIFACTORY_HOST/python-community-docker/custom-techimage/offline-trivy:latest
+
+  # Python settings
+  PYTHON_LINE_LENGTH: 120
+
+  # Tags for
+  DOCKER_REPO_PATH: $DOCKER_TEAM_REGISTRY_PREFIX$PROJECT_SLUG/$CI_PROJECT_NAME
+  DOCKER_PRODUCTION_TAG_BODY: $ARTIFACTORY_HOST/$DOCKER_REPO_PATH
+  DOCKER_TAG_FOR_CI: $DOCKER_PRODUCTION_TAG_BODY/ci:$CI_COMMIT_SHORT_SHA
+  DOCKER_TAG_CI_RELEASE: $DOCKER_PRODUCTION_TAG_BODY/release:$CI_COMMIT_SHORT_SHA
+  DOCKER_TAG_FOR_CI_AMD: $DOCKER_PRODUCTION_TAG_BODY/ci:$CI_COMMIT_SHORT_SHA-linux-amd64
+  DOCKER_TAG_FOR_CI_ARM: $DOCKER_PRODUCTION_TAG_BODY/ci:$CI_COMMIT_SHORT_SHA-linux-arm64
+  DOCKER_IMAGE_PATH: $DOCKER_REPO_PATH/ci/$CI_COMMIT_SHORT_SHA
+  DOCKER_RELEASE_BODY: $DOCKER_PRODUCTION_TAG_BODY/release
+  DOCKER_RELEASE_PATH: $DOCKER_REPO_PATH/release
+
+  # Test stage settings
+  JUNIT_FILE_NAME: junit.xml
+  COVERAGE_FILE_NAME: coverage.xml
+  OUT_DIR_IN_DOCKER: /srv/out
+  ARTIFACTORY_TESTED_PROPERTY: tested
+  ARTIFACTORY_SCANNED_PROPERTY: scanned
+
+  # Deploy stage settings
+  DEPLOY_HELM_CHART: chart
+  DEPLOY_HELM_ARGS: ""
+
+  # Frontend settings
+  BUILD_DIR: build
+  NPM_INSTALL_EXTRA_ARGS: "--cache /.cache/.package_managers --prefer-offline"
+  PNPM_INSTALL_EXTRA_ARGS: "--store-dir /.cache/.package_managers --prefer-offline"
+  YARN_INSTALL_EXTRA_ARGS: "--cache-folder /.cache/.package_managers --prefer-offline"
+
+  #Corepack settings
+  COREPACK_HOME: "/.cache/.package_managers"
+  COREPACK_NPM_REGISTRY: https://$ARTIFACTORY_USER:$ARTIFACTORY_PASSWORD@$ARTIFACTORY_HOST/artifactory/api/npm/npm
+
+  # Semver
+  SKIP_AUTO_SEMVER: "true"

@@ -1,0 +1,31 @@
+include: _base/base.yml
+
+.verify-artifactory-properties:
+  extends: .default-job
+  stage: image-release
+  image: $JFROG_CLI_IMAGE_FOR_CI
+  rules:
+    - !reference [.default-rules, image-tagging-rule]
+  variables:
+    ARTIFACT_PATH: $DOCKER_IMAGE_PATH
+    ARTIFACT_PROPERTIES: "$ARTIFACTORY_TESTED_PROPERTY=true;$ARTIFACTORY_SCANNED_PROPERTY=true"
+  before_script:
+    - !reference [.default-job, before_script]
+    - !reference [.login-methods, jfrog-login]
+  script:
+    - images_with_properties=$(jf rt s --count --props $ARTIFACT_PROPERTIES $ARTIFACT_PATH --include-dirs --insecure-tls)
+    - test $images_with_properties -eq 1
+
+# Image release job, you can inherit from.
+# Copies images from ci to release, adding tag value
+# Uses tested scanned images only.
+.image-release:
+  extends: .skopeo-copy-job
+  stage: image-release
+  rules:
+    - !reference [.default-rules, release-rule]
+  before_script:
+    - !reference [.skopeo-copy-job, before_script]
+    - !reference [.prepare-build-tag, script]
+    - export ARTIFACT_PATH_FROM=$RELEASE_FROM_TAG
+    - export ARTIFACT_PATH_TO=$RELEASE_DOCKER_TAG

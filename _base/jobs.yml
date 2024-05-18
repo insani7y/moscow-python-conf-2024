@@ -1,0 +1,135 @@
+.default-job:
+  # any job should be child of this
+  interruptible: true
+  retry: 2
+  before_script:
+    - set -x
+
+.login-methods:
+  docker-login:
+    - echo "$ARTIFACTORY_PASSWORD" | docker login -u $ARTIFACTORY_USER --password-stdin $ARTIFACTORY_HOST
+  docker-logout:
+    - docker logout $ARTIFACTORY_HOST
+  kaniko-login:
+    - echo "{\"auths\":{\"$ARTIFACTORY_HOST\":{\"username\":\"$ARTIFACTORY_USER\",\"password\":\"$ARTIFACTORY_PASSWORD\"}}}" > /kaniko/.docker/config.json
+  buildah-login:
+    - buildah login --tls-verify=false -u $ARTIFACTORY_USER -p $ARTIFACTORY_PASSWORD $ARTIFACTORY_HOST
+  buildah-logout:
+    - buildah logout --all
+  skopeo-login:
+    - echo "$ARTIFACTORY_PASSWORD" | skopeo login -u $ARTIFACTORY_USER --tls-verify=false --password-stdin $ARTIFACTORY_HOST
+  jfrog-login:
+    - jf c add default --url https://$ARTIFACTORY_HOST --user $ARTIFACTORY_USER --password $ARTIFACTORY_PASSWORD --insecure-tls=true
+
+.default-docker-cli-job:
+  extends: .default-job
+  image: $DOCKER_IMAGE_FOR_CI
+  services:
+    - name: $ARTIFACTORY_HOST/ext-devops-community-docker/dind/19.03-centos-rbru:1.0.0
+      alias: dind
+  variables:
+    DOCKER_HOST: tcp://dind:2375
+  before_script:
+    - set -x
+    - !reference [.login-methods, docker-login]
+
+.skopeo-copy-job:
+  extends: .default-job
+  image: $SKOPEO_IMAGE_FOR_CI
+  before_script:
+    - !reference [.default-job, before_script]
+    - !reference [.login-methods, skopeo-login]
+  script:
+    - skopeo copy --src-tls-verify=false --dest-tls-verify=false docker://$ARTIFACT_PATH_FROM docker://$ARTIFACT_PATH_TO
+
+.jfrog-set-property-job:
+  extends: .default-job
+  image: $JFROG_CLI_IMAGE_FOR_CI
+  rules:
+    - !reference [.default-rules, image-tagging-rule]
+  before_script:
+    - !reference [.default-job, before_script]
+    - !reference [.login-methods, jfrog-login]
+  script:
+    - jf rt sp --insecure-tls=true --include-dirs "$ARTIFACT_PATH" "$ARTIFACT_PROPERTIES"
+
+.prepare-build-tag:
+  script:
+    - export RELEASE_FROM_TAG=$DOCKER_PRODUCTION_TAG_BODY/$(if [[ $CI_COMMIT_TAG ]]; then echo release:$CI_COMMIT_SHORT_SHA; else echo ci:$CI_COMMIT_SHORT_SHA; fi)
+    - export DOCKER_IMAGE_VERSION=$(if [[ $CI_COMMIT_TAG ]]; then echo ${CI_COMMIT_TAG/v}; else echo $CI_COMMIT_SHORT_SHA; fi)
+    - export RELEASE_DOCKER_TAG=$DOCKER_RELEASE_BODY:$DOCKER_IMAGE_VERSION
+    - export RELEASE_DOCKER_IMAGE_PATH=$DOCKER_RELEASE_PATH/$DOCKER_IMAGE_VERSION
+
+.base-frontend-cache:
+  include: _base/base.yml
+  cache:
+    - key:
+        files:
+          - package.json
+      paths:
+        - /.cache/.package_managers/
+    - key: packages-cache-${CI_COMMIT_REF_SLUG}
+      paths:
+        - /.cache/.packages-cache/
+    - key: node-modules-cache-${CI_COMMIT_REF_SLUG}
+      paths:
+        - node_modules/
+
+.configure-package-manager:
+  cache:
+    - !reference [.base-frontend-cache, cache]
+  artifacts:
+    paths:
+      - .npmrc
+    expire_in: 30 mins
+  before_script:
+    - set -x
+    - ARTIFACTORY_NPM_AUTH=$(echo -n "${ARTIFACTORY_USER}:${ARTIFACTORY_PASSWORD}" | base64 | tr -d '\n')
+    - echo "registry=$ARTIFACTORY_HOST/artifactory/api/npm/npm/" >> ./.npmrc
+    - echo "@fcc:registry=$ARTIFACTORY_HOST/artifactory/api/npm/fcc-d-npm/" >> ./.npmrc
+    - echo "//$ARTIFACTORY_HOST/:_auth = ${ARTIFACTORY_NPM_AUTH}" >> ./.npmrc
+    - echo "//$ARTIFACTORY_HOST/artifactory/api/npm/fcc-d-npm/:_auth = ${ARTIFACTORY_NPM_AUTH}" >> ./.npmrc
+    - echo "email=${ARTIFACTORY_USER}@raiffeisen.ru" >> ./.npmrc
+    - echo "unsafe-perm=true" >> ./.npmrc
+    - echo "strict-ssl=false" >> ./.npmrc
+    - echo "always-auth=true" >> ./.npmrc
+    - if [[ -n "$NPMRC_ADDITIONAL_SCOPE"  ]]; then echo "${NPMRC_ADDITIONAL_SCOPE}" >> ./.npmrc; fi;
+    - corepack enable
+    - export PACKAGE_MANAGER=$(awk -F'[@"]' '/"packageManager":/ { print $4 }' package.json)
+    - |
+      if [[ ! $PACKAGE_MANAGER ]]; then
+        corepack use npm
+        export PACKAGE_MANAGER="npm"
+      fi
+    - corepack install
+
+.install-frontend:
+  extends: .configure-package-manager
+  image: $NODE_IMAGE_FOR_CI
+  before_script:
+    - !reference [.configure-package-manager, before_script]
+    - |
+      case "$PACKAGE_MANAGER" in
+        pnpm)
+          INSTALL_EXTRA_ARGS=$PNPM_INSTALL_EXTRA_ARGS
+        ;;
+        yarn)
+          INSTALL_EXTRA_ARGS=$YARN_INSTALL_EXTRA_ARGS
+        ;;
+        *)
+          INSTALL_EXTRA_ARGS=$NPM_INSTALL_EXTRA_ARGS
+        ;;
+      esac
+    - $PACKAGE_MANAGER install $INSTALL_EXTRA_ARGS
+  rules:
+    - !reference [.default-rules, merge-request-rule]
+
+.poetry-base:
+  image: $PYTHON_IMAGE_FOR_CI
+  cache:
+    key: pypi-deps
+    paths:
+      - $CI_PROJECT_DIR/.poetry-cache
+  before_script:
+    - poetry config cache-dir $CI_PROJECT_DIR/.poetry-cache
+    - poetry config repositories.team https://$ARTIFACTORY_USER:$ARTIFACTORY_PASSWORD@$ARTIFACTORY_HOST/artifactory/api/pypi/$TEAM_PYPI_REPO/

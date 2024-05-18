@@ -1,0 +1,123 @@
+include: _base/base.yml
+
+variables:
+  PYTEST_WORKERS_COUNT: 4
+  _DEFAULT_PYTHON_TEST_COMMAND_SUFFIX: "pytest . --cov=. --cov-report term-missing -n$PYTEST_WORKERS_COUNT"
+  CI_NPM_CACHE_KEY: npm-cache-v1
+
+.test-base:
+  # Base test job. Includes only general variables for all static-analyze jobs and job meta info.
+  # Also includes artifacts to be exported.
+  stage: test
+  extends: .default-job
+  coverage: '/(?i)total.*? (100(?:\.0+)?\%|[1-9]?\d(?:\.\d+)?\%)$/'
+  variables:
+    EXTRA_ARGS: ""
+    COMMAND: ""
+  artifacts:
+    expire_in: 30 days
+    # for inner gitlab reporting system
+    reports:
+      junit: $JUNIT_FILE_NAME
+      coverage_report:
+        coverage_format: cobertura
+        path: $COVERAGE_FILE_NAME
+    # for external sonar task
+    paths:
+      - $JUNIT_FILE_NAME
+      - $COVERAGE_FILE_NAME
+  rules:
+    - if: $SKIP_TESTS
+      when: never
+    - !reference [.default-rules, dev-rule]
+
+.after-test-base:
+  # Base after test job.
+  stage: test
+  extends: .default-job
+  rules:
+    - !reference [.default-rules, dev-rule]
+
+.test-js-ci:
+  # Test js job, you can inherit from.
+  cache:
+    - !reference [.base-frontend-cache, cache]
+  extends:
+    - .test-base
+    - .configure-package-manager
+  image: $NODE_IMAGE_FOR_CI
+  script:
+    - $PACKAGE_MANAGER run test:ci
+  coverage: '/All files[^|]*\|[^|]*\s+([\d\.]+)/'
+  artifacts:
+    expire_in: 30 days
+    # for inner gitlab reporting system
+    reports:
+      junit: $JUNIT_FILE_NAME
+      coverage_report:
+        coverage_format: cobertura
+        path: $COVERAGE_FILE_NAME
+    # for external sonar task
+    paths:
+      - $JUNIT_FILE_NAME
+      - $COVERAGE_FILE_NAME
+
+.test-python-ci:
+  # Test job, you can inherit from.
+  # Default test command is defined.
+  extends:
+    - .test-base
+    - .poetry-base
+  variables:
+    COMMAND: $_DEFAULT_PYTHON_TEST_COMMAND_SUFFIX --junitxml=$JUNIT_FILE_NAME --cov-report xml:$COVERAGE_FILE_NAME
+  script:
+    - poetry install --all-extras
+    - poetry run $COMMAND $EXTRA_ARGS
+
+.test-docker-ci:
+  # Test in image job, you can inherit from.
+  # Default test command is defined.
+  extends:
+    - .test-base
+    - .default-docker-cli-job
+  image: $DOCKER_CLI_FOR_CI
+  variables:
+    COMMAND: $_DEFAULT_PYTHON_TEST_COMMAND_SUFFIX --junitxml=$OUT_DIR_IN_DOCKER/$JUNIT_FILE_NAME --cov-report xml:$OUT_DIR_IN_DOCKER/$COVERAGE_FILE_NAME
+    DOCKER_FILE_DESTINATION: "Dockerfile"
+  script:
+    - docker run $DOCKER_TAG_FOR_CI $COMMAND || [ $? -eq 5 ]
+    - CONTAINER_ID=`docker ps -lq`
+    - docker cp $CONTAINER_ID:$OUT_DIR_IN_DOCKER/$JUNIT_FILE_NAME $JUNIT_FILE_NAME
+    - docker cp $CONTAINER_ID:$OUT_DIR_IN_DOCKER/$COVERAGE_FILE_NAME $COVERAGE_FILE_NAME
+
+.test-compose-ci:
+  # Test in docker-compose job, you can inherit from.
+  # Requires COMPOSE_FILE_DESTINATION to be defined. Example: /my/path/to/compose/docker-compose.yml.
+  # By default app name for testing is "app", you can redefine it.
+  # Default command is defined.
+  extends:
+    - .test-base
+    - .default-docker-cli-job
+  image: $DOCKER_CLI_FOR_CI
+  variables:
+    COMPOSE_FILE_DESTINATION: "docker-compose.yml"
+    COMMAND: $_DEFAULT_PYTHON_TEST_COMMAND_SUFFIX --junitxml=$OUT_DIR_IN_DOCKER/$JUNIT_FILE_NAME --cov-report xml:$OUT_DIR_IN_DOCKER/$COVERAGE_FILE_NAME
+    APPLICATION_NAME: application
+  script:
+    - docker compose -f $COMPOSE_FILE_DESTINATION config |
+      docker run -i $YQ_IMAGE_FOR_CI "(.services[] | select(has(\"build\")) | del(.build) |.image) |= \"${DOCKER_TAG_FOR_CI}\"" > ./tmp-compose.yml
+    - mv ./tmp-compose.yml $COMPOSE_FILE_DESTINATION
+    - docker compose -f $COMPOSE_FILE_DESTINATION run $APPLICATION_NAME $COMMAND $EXTRA_ARGS || [ $? -eq 5 ]
+    - CONTAINER_ID=`docker ps -lq`
+    - docker cp $CONTAINER_ID:$OUT_DIR_IN_DOCKER/$JUNIT_FILE_NAME $JUNIT_FILE_NAME
+    - docker cp $CONTAINER_ID:$OUT_DIR_IN_DOCKER/$COVERAGE_FILE_NAME $COVERAGE_FILE_NAME
+    - docker compose -f $COMPOSE_FILE_DESTINATION down -v
+
+.tag-tested-image:
+  # Adds 'tested' property to the image. This means, that image has been tested.
+  extends:
+    - .after-test-base
+    - .jfrog-set-property-job
+  variables:
+    ARTIFACT_PATH: $DOCKER_IMAGE_PATH
+    ARTIFACT_PROPERTIES: "$ARTIFACTORY_TESTED_PROPERTY=true"

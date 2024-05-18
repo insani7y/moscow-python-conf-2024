@@ -1,0 +1,32 @@
+include:
+  - project: "some-secret-includes"
+    file: "/some-secret.yaml"
+  - "_base/base.yml"
+
+.appsec-base:
+  stage: appsec
+  rules:
+    - if: $APPSEC_SKIP == 'true'
+      when: never
+    - !reference [.default-rules, dev-rule]
+
+.appsec-stages:
+  stage: appsec
+  variables:
+    APPSEC_ARTIFACTS: $DOCKER_TAG_FOR_CI
+  rules:
+    - !reference [.appsec-base, rules]
+
+.appscreener-get-project:
+  extends: .appsec-base
+  rules:
+    - if: $APPSCREENER_TOKEN == ""
+      when: never
+    - !reference [.appsec-base, rules]
+
+.appscreener-scan:
+  extends: .appsec-base
+  rules:
+    - if: $APPSCREENER_TOKEN == ""
+      when: never
+    - !reference [.appsec-base, rules]

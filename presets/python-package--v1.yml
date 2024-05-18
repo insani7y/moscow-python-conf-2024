@@ -1,0 +1,45 @@
+include:
+  - "/templates/v1/static-analyze.yml"
+  - "/templates/v1/build.yml"
+  - "/templates/v1/test.yml"
+  - "/templates/v1/publish.yml"
+  - "/templates/v1/build.yml"
+  - "/templates/v1/deploy.yml"
+
+lines-of-code-badge:
+  extends: .lines-of-code-badge
+
+ruff-check-static-analyze:
+  extends: .ruff-check-static-analyze
+
+ruff-format-static-analyze:
+  extends: .ruff-format-static-analyze
+
+trivy-static-analyze:
+  extends: .trivy-static-analyze
+
+mypy-static-analyze:
+  extends: .mypy-static-analyze
+
+kaniko-build:
+  extends: .kaniko-build
+
+kaniko-build-arm:
+  extends: .kaniko-build-arm
+
+publish-multiarch-manifest:
+  needs:
+    - kaniko-build-arm
+    - kaniko-build
+  extends: .publish-multiarch-manifest
+
+test-ci:
+  extends: .test-docker-ci
+
+auto-semver:
+  needs:
+    - test-ci
+  extends: .auto-semver
+
+publish:
+  extends: .publish

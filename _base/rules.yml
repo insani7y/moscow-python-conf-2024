@@ -1,0 +1,44 @@
+.default-rules:
+  dev-rule:
+    - if: $ENABLE_ISOLATION == "true" && $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: on_success
+    - if: ($CI_COMMIT_BRANCH == "master" || $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH =~ /^hotfix.*/ ) && $CI_COMMIT_TAG == null
+      when: on_success
+  frontend-rule:
+    - if: $CI_COMMIT_BRANCH == "master" || $CI_COMMIT_BRANCH == "main" || && $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: on_success
+  merge-request-rule:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: on_success
+  tag-rule:
+    - if: $CI_COMMIT_TAG =~ /^\d+\.\d+\.\d+$/
+      when: on_success
+  image-tagging-rule:
+    - if: ($CI_COMMIT_BRANCH == "master" || $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH =~ /^hotfix.*/ ) && $CI_COMMIT_TAG == null
+      when: on_success
+    - when: never
+  release-rule:
+    - if: ($ENABLE_ISOLATION == "true" && $CI_PIPELINE_SOURCE == "merge_request_event")
+      when: manual
+      allow_failure: true
+    - if: ($CI_COMMIT_TAG =~ /^\d+\.\d+\.\d+$/ || $CI_COMMIT_BRANCH == "master" || $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH =~ /^hotfix.*/)
+      when: on_success
+    - when: never
+  deploy-dev-rule:
+    - if: ($ENABLE_ISOLATION == "true" && $CI_PIPELINE_SOURCE == "merge_request_event") && ($KUBE_CONTEXT || $KUBE_CONTEXT_DEV) && ($DEPLOY_NAMESPACE || $DEPLOY_NAMESPACE_DEV)
+      when: on_success
+    - if: ($CI_COMMIT_TAG =~ /^\d+\.\d+\.\d+$/ || $CI_COMMIT_BRANCH == "master" || $CI_COMMIT_BRANCH == "main") && ($KUBE_CONTEXT || $KUBE_CONTEXT_DEV) && ($DEPLOY_NAMESPACE || $DEPLOY_NAMESPACE_DEV)
+      when: on_success
+    - when: never
+  deploy-prev-rule:
+    - if: $CI_COMMIT_TAG =~ /^\d+\.\d+\.\d+$/ && ($KUBE_CONTEXT || $KUBE_CONTEXT_PREV) && ($DEPLOY_NAMESPACE || $DEPLOY_NAMESPACE_PREV)
+      when: on_success
+    - when: never
+  deploy-prod-rule:
+    - if: $CI_COMMIT_TAG =~ /^\d+\.\d+\.\d+$/ && ($KUBE_CONTEXT || $KUBE_CONTEXT_PROD) && ($DEPLOY_NAMESPACE || $DEPLOY_NAMESPACE_PROD)
+      when: manual
+    - when: never
+  gitlab-release-rule:
+    - if: $CI_COMMIT_TAG =~ /^\d+\.\d+\.\d+$/ && ($GENERIC_GITLAB_TOKEN)
+      when: on_success
+    - when: never

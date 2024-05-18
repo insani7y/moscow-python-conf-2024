@@ -1,0 +1,85 @@
+include: _base/base.yml
+
+# Deploy job for specific environment
+# By default, values file is expected here: chart/envs/<ENVIRONMENT>.yaml
+# Requires the following variables to be provided:
+# ENVIRONMENT - environment type (dev/preview/prod)
+# KUBE_CONTEXT - path to the gitlab-agent, which is connected with desired kubernetes cluster
+# DEPLOY_NAMESPACE - namespace where deploy should be performed
+.deploy-base:
+  extends: .default-docker-cli-job
+  stage: deploy
+  image: $DOCKER_IMAGE_FOR_CI
+  variables:
+    VALUES_FILE: "$DEPLOY_HELM_CHART/envs/$CI_ENVIRONMENT_NAME.yaml"
+  rules:
+    - !reference [.default-rules, dev-rule]
+  before_script:
+    - !reference [.default-docker-cli-job, before_script]
+    - echo $KUBE_CONTEXT
+    - if [ -n "$KUBE_CONTEXT" ]; then kubectl config use-context "$KUBE_CONTEXT"; fi
+  after_script:
+    - !reference [.prepare-build-tag, script]
+    - !reference [.login-methods, jfrog-login]
+    - docker run $JFROG_CLI_IMAGE_FOR_CI jf rt delp "$DOCKER_TEAM_REGISTRY_PREFIX$PROJECT_SLUG/$CI_PROJECT_NAME/release/"
+      "release-$CI_ENVIRONMENT_NAME" --include-dirs --url https://$ARTIFACTORY_HOST/artifactory
+      --insecure-tls --user $ARTIFACTORY_USER --password $ARTIFACTORY_PASSWORD
+    - echo $RELEASE_DOCKER_IMAGE_PATH
+    - docker run $JFROG_CLI_IMAGE_FOR_CI jf rt sp $RELEASE_DOCKER_IMAGE_PATH "release-$CI_ENVIRONMENT_NAME=1"
+      --include-dirs --url https://$ARTIFACTORY_HOST/artifactory
+      --insecure-tls --user $ARTIFACTORY_USER --password $ARTIFACTORY_PASSWORD
+
+  script:
+    - !reference [.prepare-build-tag, script]
+    - >
+      helm upgrade -i $CI_PROJECT_NAME $DEPLOY_HELM_CHART -n $DEPLOY_NAMESPACE -f $VALUES_FILE
+      --set env.CI_COMMIT_TAG=$CI_COMMIT_TAG
+      --set env.CI_COMMIT_SHA=$CI_COMMIT_SHA
+      --set env.CI_COMMIT_REF_NAME=$CI_COMMIT_REF_NAME
+      --set env.CI_PROJECT_NAME=$CI_PROJECT_NAME
+      --set image=$RELEASE_DOCKER_TAG $DEPLOY_HELM_ARGS
+
+.deploy-dev:
+  extends: .deploy-base
+  environment:
+    name: dev
+  rules:
+    - !reference [.default-rules, deploy-dev-rule]
+  before_script:
+    - export KUBE_CONTEXT=${KUBE_CONTEXT_DEV:-$KUBE_CONTEXT}
+    - export DEPLOY_NAMESPACE=${DEPLOY_NAMESPACE_DEV:-$DEPLOY_NAMESPACE}
+    - !reference [.deploy-base, before_script]
+
+.deploy-prev:
+  extends: .deploy-base
+  environment:
+    name: prev
+  rules:
+    - !reference [.default-rules, deploy-prev-rule]
+  before_script:
+    - export KUBE_CONTEXT=${KUBE_CONTEXT_PREV:-$KUBE_CONTEXT}
+    - export DEPLOY_NAMESPACE=${DEPLOY_NAMESPACE_PREV:-$DEPLOY_NAMESPACE}
+    - !reference [.deploy-base, before_script]
+
+.deploy-prod:
+  extends: .deploy-base
+  environment:
+    name: prod
+  rules:
+    - !reference [.default-rules, deploy-prod-rule]
+  before_script:
+    - export KUBE_CONTEXT=${KUBE_CONTEXT_PROD:-$KUBE_CONTEXT}
+    - export DEPLOY_NAMESPACE=${DEPLOY_NAMESPACE_PROD:-$DEPLOY_NAMESPACE}
+    - !reference [.deploy-base, before_script]
+
+.auto-semver:
+  image: $PYTHON_IMAGE_FOR_CI
+  stage: deploy
+  rules:
+    - if: $ENABLE_ISOLATION != "true" || $SKIP_AUTO_SEMVER == "true"
+      when: never
+    - if: ($CI_COMMIT_BRANCH == "master" || $CI_COMMIT_BRANCH == "main")
+      when: on_success
+  script:
+    - pip install raif-tiny-releaser --extra-index-url https://$ARTIFACTORY_USER:$ARTIFACTORY_PASSWORD@$ARTIFACTORY_HOST/artifactory/api/pypi/python-community-pypi/simple
+    - python -m tiny_releaser auto-semver $CI_PROJECT_ID $GENERIC_GITLAB_TOKEN
