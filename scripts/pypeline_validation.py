@@ -8,7 +8,6 @@ import gitlab
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
-
 GITLAB_SERVER_URL: typing.Final = "..."
 ROOT_DIR: typing.Final = pathlib.Path(__file__).parents[2]
 VALIDATION_FOLDER_NAMES: typing.Final[list[str]] = ["presets"]
@@ -41,7 +40,8 @@ def add_project_to_includes(file_contents: str) -> str:
 def main() -> None:
     private_token: typing.Final = os.getenv("...")
     gitlab_client: typing.Final = gitlab.Gitlab(
-        GITLAB_SERVER_URL, private_token=private_token
+        GITLAB_SERVER_URL,
+        private_token=private_token,
     )
     all_valid: bool = True
 
@@ -50,28 +50,29 @@ def main() -> None:
     # get GitLab token from environment variables
     for folder_to_validate in VALIDATION_FOLDER_NAMES:
         for file_name in filter(
-            lambda file_name: file_name.endswith(".yml"), os.listdir(folder_to_validate)
+            lambda file_name: file_name.endswith(".yml"),
+            os.listdir(folder_to_validate),
         ):
             with pathlib.Path(
-                f"{folder_to_validate}/{file_name}"
+                f"{folder_to_validate}/{file_name}",
             ).open() as yml_file_to_validate:
                 try:
                     yaml_content_with_project: typing.Final = add_project_to_includes(
-                        yml_file_to_validate.read()
+                        yml_file_to_validate.read(),
                     )
 
                 except YAMLError as e:
                     all_valid = False
                     logging.info(
-                        f"{folder_to_validate}/{file_name} has syntax error\n {e}"
+                        f"{folder_to_validate}/{file_name} has syntax error\n {e}",
                     )
 
                 else:
                     lint_result: typing.Final = pypelines_project.ci_lint.create(
-                        {"content": yaml_content_with_project}
+                        {"content": yaml_content_with_project},
                     )
                     logging.info(
-                        f"{folder_to_validate}/{file_name} is {'valid' if lint_result.valid else 'invalid'}"
+                        f"{folder_to_validate}/{file_name} is {'valid' if lint_result.valid else 'invalid'}",
                     )
                     if not lint_result.valid:
                         all_valid = False
